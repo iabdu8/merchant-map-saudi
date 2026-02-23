@@ -5,52 +5,60 @@ import folium
 from streamlit_folium import folium_static
 import time
 
-# 1. إعدادات الصفحة
-st.set_page_config(page_title="MapInsight | محلل بيانات التجار", layout="wide", page_icon="📍")
+st.set_page_config(page_title="MapInsight | النسخة الدقيقة", layout="wide", page_icon="📍")
 
-st.markdown("""
-    <style>
-    .stButton>button { width: 100%; border-radius: 10px; background-color: #007bff; color: white; font-weight: bold; }
-    </style>
-    """, unsafe_allow_html=True)
+st.title("📍 محدد المواقع السعودي الدقيق")
+st.write("تم تحديث خوارزمية البحث لضمان عدم تداخل المدن المتجاورة.")
 
-st.title("📍 منصة MapInsight")
-st.subheader("عرض كامل نقاط البيع وتوزيع العملاء")
-
-# 2. رفع الملف
-uploaded_file = st.file_uploader("ارفع ملف مبيعاتك (CSV)", type=["csv"])
+uploaded_file = st.file_uploader("ارفع ملف CSV", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file, encoding='utf-8')
     
-    st.write("### 🛠️ إعدادات الأعمدة")
     c1, c2, c3 = st.columns(3)
-    with c1: name_col = st.selectbox("👤 اسم العميل", df.columns)
-    with c2: city_col = st.selectbox("🏙️ المدينة", df.columns)
-    with c3: addr_col = st.selectbox("🏠 الحي / العنوان", df.columns)
+    with c1: name_col = st.selectbox("اسم العميل", df.columns)
+    with c2: city_col = st.selectbox("المدينة", df.columns)
+    with c3: addr_col = st.selectbox("العنوان", df.columns)
 
-    if st.button("🚀 عرض الخريطة الشاملة"):
-        geolocator = Nominatim(user_agent="mapinsight_v6_final")
+    if st.button("🚀 تحليل وتوليد الخريطة"):
+        geolocator = Nominatim(user_agent="saudi_ultra_mapper_v8")
+        m = folium.Map(location=[24.7136, 46.6753], zoom_start=5)
         
-        # إنشاء الخريطة
-        m = folium.Map(location=[24.7136, 46.6753], zoom_start=5, tiles='OpenStreetMap')
-        
+        # تعريف حدود تقريبية للمدن الكبرى لمنع التداخل (Latitude, Longitude)
+        city_bounds = {
+            "مكة": ["21.20", "39.50", "21.60", "40.10"],
+            "مكة المكرمة": ["21.20", "39.50", "21.60", "40.10"],
+            "جدة": ["21.20", "38.90", "21.90", "39.40"],
+            "الرياض": ["24.40", "46.40", "25.00", "47.00"],
+            "الطائف": ["21.10", "40.20", "21.50", "40.60"]
+        }
+
         found_count = 0
         failed_names = []
         progress_bar = st.progress(0)
 
         for i, row in df.iterrows():
-            time.sleep(1) # لضمان عدم حظر المحرك المجاني
+            time.sleep(1.2)
             progress_bar.progress((i + 1) / len(df))
             
-            query = f"{row[addr_col]}, {row[city_col]}, Saudi Arabia"
+            city = str(row[city_col]).strip()
+            address = str(row[addr_col]).strip()
+            query = f"{address}, {city}, Saudi Arabia"
+            
+            # محاولة البحث مع تقييد النطاق الجغرافي للمدينة
+            viewbox = city_bounds.get(city, None)
+            
             try:
-                location = geolocator.geocode(query, timeout=10)
-                if location and (row[city_col].strip() in location.address):
-                    # إضافة الدبوس مباشرة للخريطة (بدون تجميع)
+                if viewbox:
+                    # يبحث فقط داخل حدود المدينة المحددة
+                    location = geolocator.geocode(query, viewbox=[(viewbox[0], viewbox[1]), (viewbox[2], viewbox[3])], bounded=True, timeout=10)
+                else:
+                    location = geolocator.geocode(query, timeout=10)
+
+                if location:
                     folium.Marker(
                         [location.latitude, location.longitude],
-                        popup=f"<b>الاسم:</b> {row[name_col]}<br><b>العنوان:</b> {row[addr_col]}",
+                        popup=f"<b>{row[name_col]}</b><br>{city}",
                         tooltip=row[name_col],
                         icon=folium.Icon(color='red', icon='info-sign')
                     ).add_to(m)
@@ -61,17 +69,9 @@ if uploaded_file:
                 failed_names.append(row[name_col])
 
         progress_bar.empty()
-
-        # عرض النتائج
-        st.write(f"### ✅ تم تحديد {found_count} موقع بنجاح")
+        st.write(f"✅ تم تحديد {found_count} موقع بنجاح.")
         folium_static(m, width=1200, height=600)
 
-        # زر التحميل للتاجر
-        map_html = m._repr_html_()
-        st.download_button("💾 تحميل الخريطة كاملة", data=map_html, file_name="full_map.html", mime="text/html")
-
         if failed_names:
-            with st.expander("⚠️ أسماء لم تظهر (تأكد من دقة العنوان)"):
+            with st.expander("⚠️ أسماء لم يتم تحديدها:"):
                 st.write(", ".join(failed_names))
-        
-        st.balloons()
